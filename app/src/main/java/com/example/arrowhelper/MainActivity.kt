@@ -21,8 +21,6 @@ import androidx.core.content.ContextCompat
 class MainActivity : ComponentActivity() {
 
     private lateinit var status: TextView
-    private lateinit var rowsInput: EditText
-    private lateinit var colsInput: EditText
     private lateinit var thresholdInput: EditText
     private lateinit var delayInput: EditText
 
@@ -54,8 +52,6 @@ class MainActivity : ComponentActivity() {
         status = TextView(this).apply { setPadding(0, pad / 2, 0, pad / 2) }
         root.addView(status)
 
-        rowsInput = numberField(root, "Grid rows", Prefs.rows(this))
-        colsInput = numberField(root, "Grid columns", Prefs.cols(this))
         thresholdInput = numberField(root, "Detection sensitivity (lower = picks up fainter arrows, default 90)", Prefs.threshold(this))
         delayInput = numberField(root, "Pause between auto-taps in ms (default 450)", Prefs.tapDelay(this).toInt())
 
@@ -77,8 +73,8 @@ class MainActivity : ComponentActivity() {
         root.addView(TextView(this).apply {
             setPadding(0, pad, 0, 0)
             text = "How to use:\n" +
-                "• Open the game, then tap Grid on the floating bar and drag the box so it covers the puzzle exactly (corner to corner). Tap Save.\n" +
-                "• Hint: numbers show the order to tap. Red ! = an arrow that can't leave (usually a detection or grid mistake).\n" +
+                "• Open the game, tap Grid on the floating bar and drag the box so it covers the whole puzzle (all the dots, with a little margin). Tap Save.\n" +
+                "• Hint: a number on each arrowhead shows the order to tap. Red ! = an arrow that can't leave (usually the box doesn't cover the whole puzzle).\n" +
                 "• Auto: taps the arrows for you in that order. Tap Stop to cancel.\n" +
                 "• Drag the bar by its ⠿ handle so it isn't covering the puzzle."
         })
@@ -111,8 +107,8 @@ class MainActivity : ComponentActivity() {
         fun EditText.int(def: Int, lo: Int, hi: Int) = (text.toString().toIntOrNull() ?: def).coerceIn(lo, hi)
         Prefs.save(
             this,
-            rowsInput.int(6, 1, 30),
-            colsInput.int(6, 1, 30),
+            6,
+            6,
             thresholdInput.int(90, 10, 400),
             delayInput.int(450, 100, 5000),
         )

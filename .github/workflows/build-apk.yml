@@ -23,7 +23,7 @@ jobs:
         run: |
           echo "sdk.dir=$ANDROID_HOME" > local.properties
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0" > /dev/null || true
-          gradle :app:assembleDebug --no-daemon
+          gradle :app:testDebugUnitTest :app:assembleDebug --no-daemon
           cp app/build/outputs/apk/debug/app-debug.apk ArrowHelper.apk
       - uses: actions/upload-artifact@v4
         with:

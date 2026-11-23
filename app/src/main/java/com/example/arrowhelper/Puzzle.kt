@@ -1,157 +1,258 @@
 package com.example.arrowhelper
 
-import android.graphics.Bitmap
-import android.graphics.RectF
-import kotlin.math.abs
-import kotlin.math.max
-import kotlin.math.min
+import kotlin.math.roundToInt
 
-enum class Dir(val dr: Int, val dc: Int, val glyph: String) {
-    UP(-1, 0, "↑"), DOWN(1, 0, "↓"), LEFT(0, -1, "←"), RIGHT(0, 1, "→")
-}
-
-/** The puzzle grid: one arrow (or nothing) per cell. */
-class Board(val rows: Int, val cols: Int, val cells: Array<Dir?>) {
-    operator fun get(r: Int, c: Int): Dir? = cells[r * cols + c]
-    val arrowCount: Int get() = cells.count { it != null }
-}
-
-data class Move(val row: Int, val col: Int, val dir: Dir)
-
-/** moves = tap order; stuck = cells whose arrow can never leave (usually a detection mistake). */
-class SolveResult(val moves: List<Move>, val stuck: List<Pair<Int, Int>>)
+/** A lattice node: row and column on the dot grid. */
+data class Node(val r: Int, val c: Int)
 
 /**
- * "Arrow escape" rules: tapping an arrow makes it fly off the board in the direction it
- * points, but only if no other arrow is in its path. Removing an arrow never blocks
- * another one, so repeatedly removing any free arrow always finds a solution if one exists.
+ * One arrow: a bent line along the dot grid. [nodes] runs tail → head,
+ * so the arrow points from nodes[size-2] to nodes[size-1].
+ */
+class Arrow(val nodes: List<Node>) {
+    val head: Node get() = nodes.last()
+    val dr: Int get() = nodes.last().r - nodes[nodes.size - 2].r
+    val dc: Int get() = nodes.last().c - nodes[nodes.size - 2].c
+    /** A point on the arrow to tap: its middle node. */
+    val tapNode: Node get() = nodes[nodes.size / 2]
+}
+
+/** Board read from the screen. xs/ys are the screen positions of the dot columns/rows. */
+class Board(val xs: FloatArray, val ys: FloatArray, val arrows: List<Arrow>, val unreadable: Int) {
+    val rows get() = ys.size
+    val cols get() = xs.size
+}
+
+/** order = arrow indices in tap order; stuck = arrows that can never leave. */
+class SolveResult(val order: List<Int>, val stuck: List<Int>)
+
+/**
+ * Tapping an arrow sends it forward: the head travels straight on in the direction it points
+ * and the body follows. It escapes only if nothing is in the head's way all the way to the edge.
+ * Removing an arrow never blocks another, so "remove any free arrow, repeat" finds a full
+ * solution whenever one exists.
  */
 object Solver {
     fun solve(board: Board): SolveResult {
-        val g = board.cells.copyOf()
-        val moves = mutableListOf<Move>()
+        val owner = HashMap<Node, Pair<Int, Int>>() // node -> (arrow, index along it, 0 = tail)
+        board.arrows.forEachIndexed { i, a -> a.nodes.forEachIndexed { j, n -> owner[n] = i to j } }
+        val alive = board.arrows.indices.toMutableSet()
+        val order = mutableListOf<Int>()
+
+        fun free(i: Int): Boolean {
+            val a = board.arrows[i]
+            var r = a.head.r
+            var c = a.head.c
+            var steps = 0
+            while (true) {
+                r += a.dr; c += a.dc; steps++
+                if (r !in 0 until board.rows || c !in 0 until board.cols) return true
+                val o = owner[Node(r, c)] ?: continue
+                if (o.first !in alive) continue
+                if (o.first != i) return false
+                // Its own body: the tail end moves out of the way as the arrow advances.
+                if (steps <= o.second) return false
+            }
+        }
+
         var progress = true
         while (progress) {
             progress = false
-            for (r in 0 until board.rows) for (c in 0 until board.cols) {
-                val d = g[r * board.cols + c] ?: continue
-                if (pathClear(g, board.rows, board.cols, r, c, d)) {
-                    moves += Move(r, c, d)
-                    g[r * board.cols + c] = null
-                    progress = true
-                }
+            for (i in alive.sorted()) {
+                if (free(i)) { order += i; alive.remove(i); progress = true }
             }
         }
-        val stuck = mutableListOf<Pair<Int, Int>>()
-        for (r in 0 until board.rows) for (c in 0 until board.cols)
-            if (g[r * board.cols + c] != null) stuck += r to c
-        return SolveResult(moves, stuck)
-    }
-
-    private fun pathClear(g: Array<Dir?>, rows: Int, cols: Int, r0: Int, c0: Int, d: Dir): Boolean {
-        var r = r0 + d.dr
-        var c = c0 + d.dc
-        while (r in 0 until rows && c in 0 until cols) {
-            if (g[r * cols + c] != null) return false
-            r += d.dr; c += d.dc
-        }
-        return true
+        return SolveResult(order, alive.sorted())
     }
 }
 
 /**
- * Reads the grid from a screenshot. For each cell it:
- *  1. takes the most common colour as the cell background,
- *  2. marks pixels that differ by more than [threshold] as "arrow",
- *  3. finds the arrow's long axis, then the arrowhead = the half that is widest.
+ * Reads the board from a screenshot region (ARGB pixels, row-major).
+ *  1. Bright pixels (much brighter than the background) are arrow lines; the dim dots are ignored.
+ *  2. Lines only run along the dot grid, so the grid spacing is found from where the lines bunch up.
+ *  3. Each grid node is checked for a line, and each pair of neighbouring nodes for a joining line.
+ *  4. Joined nodes form one arrow; its head is the end with the arrowhead (extra pixels around it).
  */
 object ArrowDetector {
 
-    fun detect(bmp: Bitmap, grid: RectF, rows: Int, cols: Int, threshold: Int): Board {
-        val cells = arrayOfNulls<Dir>(rows * cols)
-        val cw = grid.width() / cols
-        val ch = grid.height() / rows
-        val inset = 0.1f // skip grid lines / tile borders
-        for (r in 0 until rows) for (c in 0 until cols) {
-            val x0 = (grid.left + (c + inset) * cw).toInt().coerceIn(0, bmp.width - 1)
-            val x1 = (grid.left + (c + 1 - inset) * cw).toInt().coerceIn(x0 + 1, bmp.width)
-            val y0 = (grid.top + (r + inset) * ch).toInt().coerceIn(0, bmp.height - 1)
-            val y1 = (grid.top + (r + 1 - inset) * ch).toInt().coerceIn(y0 + 1, bmp.height)
-            val w = x1 - x0
-            val h = y1 - y0
-            if (w < 6 || h < 6) continue
-            val px = IntArray(w * h)
-            bmp.getPixels(px, 0, w, x0, y0, w, h)
-            cells[r * cols + c] = classifyCell(px, w, h, threshold)
+    /**
+     * @param px pixels of the region, [w]×[h], row-major ARGB
+     * @param left/top screen position of the region, added to the returned coordinates
+     */
+    fun detect(px: IntArray, w: Int, h: Int, left: Float, top: Float, threshold: Int): Board? {
+        val bgMax = backgroundMax(px)
+        val fg = BooleanArray(w * h) { maxChannel(px[it]) - bgMax > threshold }
+
+        val hx = IntArray(w)
+        val hy = IntArray(h)
+        for (y in 0 until h) for (x in 0 until w) if (fg[y * w + x]) { hx[x]++; hy[y]++ }
+        val (pX, oX) = lattice(hx) ?: return null
+        val (pY, oY) = lattice(hy) ?: return null
+
+        val xs = positions(oX, pX, w)
+        val ys = positions(oY, pY, h)
+        val nr = ys.size
+        val nc = xs.size
+        if (nr < 2 || nc < 2) return null
+
+        fun on(x: Float, y: Float, rad: Int): Boolean {
+            val cx = x.roundToInt()
+            val cy = y.roundToInt()
+            for (dy in -rad..rad) for (dx in -rad..rad) {
+                val xx = cx + dx
+                val yy = cy + dy
+                if (xx in 0 until w && yy in 0 until h && fg[yy * w + xx]) return true
+            }
+            return false
         }
-        return Board(rows, cols, cells)
+
+        val occ = Array(nr) { r -> BooleanArray(nc) { c -> on(xs[c], ys[r], 3) } }
+        val adj = HashMap<Node, MutableList<Node>>()
+        for (r in 0 until nr) for (c in 0 until nc) {
+            if (!occ[r][c]) continue
+            val n = Node(r, c)
+            adj.getOrPut(n) { mutableListOf() }
+            if (c + 1 < nc && occ[r][c + 1] && on((xs[c] + xs[c + 1]) / 2, ys[r], 2)) link(adj, n, Node(r, c + 1))
+            if (r + 1 < nr && occ[r + 1][c] && on(xs[c], (ys[r] + ys[r + 1]) / 2, 2)) link(adj, n, Node(r + 1, c))
+        }
+
+        fun headScore(end: Node, before: Node): Int {
+            val dr = end.r - before.r
+            val dc = end.c - before.c
+            val x = xs[end.c]
+            val y = ys[end.r]
+            var s = 0
+            for (t in floatArrayOf(0.25f, 0.35f)) if (on(x + dc * pX * t, y + dr * pY * t, 1)) s++
+            for (t in floatArrayOf(0.22f, 0.3f)) for (sg in intArrayOf(1, -1)) {
+                if (on(x + dr * pX * t * sg, y + dc * pY * t * sg, 1)) s++
+            }
+            return s
+        }
+
+        val seen = HashSet<Node>()
+        val arrows = mutableListOf<Arrow>()
+        var unreadable = 0
+        for (start in adj.keys) {
+            if (start in seen) continue
+            val comp = mutableListOf<Node>()
+            val stack = ArrayDeque<Node>().apply { add(start) }
+            seen += start
+            while (stack.isNotEmpty()) {
+                val u = stack.removeLast()
+                comp += u
+                for (v in adj.getValue(u)) if (seen.add(v)) stack.add(v)
+            }
+            if (comp.size < 2) continue // stray pixel
+            val ends = comp.filter { adj.getValue(it).size == 1 }
+            if (ends.size != 2 || comp.any { adj.getValue(it).size > 2 }) { unreadable++; continue }
+
+            val path = mutableListOf(ends[0])
+            var prev: Node? = null
+            while (true) {
+                val u = path.last()
+                val next = adj.getValue(u).firstOrNull { it != prev } ?: break
+                prev = u
+                path += next
+            }
+            val a = headScore(path.last(), path[path.size - 2])
+            val b = headScore(path[0], path[1])
+            if (b > a) path.reverse()
+            arrows += Arrow(path)
+        }
+
+        return Board(
+            FloatArray(nc) { left + xs[it] },
+            FloatArray(nr) { top + ys[it] },
+            arrows,
+            unreadable,
+        )
     }
 
-    fun classifyCell(px: IntArray, w: Int, h: Int, threshold: Int): Dir? {
-        val bg = dominantColor(px)
-        val mask = BooleanArray(px.size)
-        var n = 0
-        for (i in px.indices) if (colorDistance(px[i], bg) > threshold) { mask[i] = true; n++ }
-        if (n < px.size * 0.03 || n > px.size * 0.7) return null // empty cell / not an arrow
-        return direction(mask, w, h)
+    private fun link(adj: HashMap<Node, MutableList<Node>>, a: Node, b: Node) {
+        adj.getOrPut(a) { mutableListOf() }.add(b)
+        adj.getOrPut(b) { mutableListOf() }.add(a)
     }
 
-    fun direction(mask: BooleanArray, w: Int, h: Int): Dir {
-        // Centroid and spread -> which axis the arrow lies along.
-        var sx = 0.0; var sy = 0.0; var n = 0
-        for (y in 0 until h) for (x in 0 until w) if (mask[y * w + x]) { sx += x; sy += y; n++ }
-        val mx = sx / n
-        val my = sy / n
-        var vxx = 0.0; var vyy = 0.0
-        for (y in 0 until h) for (x in 0 until w) if (mask[y * w + x]) {
-            vxx += (x - mx) * (x - mx); vyy += (y - my) * (y - my)
-        }
-        val horizontal = vxx >= vyy
-
-        // Thickness of the shape at each position along that axis.
-        val len = if (horizontal) w else h
-        val lo = IntArray(len) { Int.MAX_VALUE }
-        val hi = IntArray(len) { -1 }
-        for (y in 0 until h) for (x in 0 until w) if (mask[y * w + x]) {
-            val a = if (horizontal) x else y
-            val b = if (horizontal) y else x
-            lo[a] = min(lo[a], b); hi[a] = max(hi[a], b)
-        }
-        var first = 0
-        while (hi[first] < 0) first++
-        var last = len - 1
-        while (hi[last] < 0) last--
-
-        // The tip tapers to a point; the tail end is as thick as the shaft.
-        // So the end with the smaller average thickness is where the arrow points.
-        val k = max(2, ((last - first + 1) * 0.06).toInt())
-        fun span(a: Int) = if (hi[a] >= 0) hi[a] - lo[a] + 1 else 0
-        var lowEnd = 0; var highEnd = 0
-        for (i in 0 until k) {
-            lowEnd += span(min(first + i, last))
-            highEnd += span(max(last - i, first))
-        }
-        val towardHigh = highEnd < lowEnd
-        return if (horizontal) { if (towardHigh) Dir.RIGHT else Dir.LEFT }
-        else { if (towardHigh) Dir.DOWN else Dir.UP }
+    private fun positions(o: Float, p: Float, n: Int): FloatArray {
+        val out = mutableListOf<Float>()
+        var k = 0
+        while ((o + k * p).roundToInt() < n) { out += o + k * p; k++ }
+        return out.toFloatArray()
     }
 
-    private fun dominantColor(px: IntArray): Int {
+    private data class Fit(val score: Double, val p: Double, val o: Double)
+
+    /** Finds grid spacing and offset (px) from a projection of line pixels. */
+    private fun lattice(h: IntArray): Pair<Float, Float>? {
+        val n = h.size
+        val perPeriod = mutableListOf<Fit>()
+        var best: Fit? = null
+        var p10 = 150 // spacing 15.0 .. 150.0 px, in 0.2 px steps
+        while (p10 < 1500 && p10 / 10.0 * 3 < n) {
+            val p = p10 / 10.0
+            var here: Fit? = null
+            var o10 = 0
+            while (o10 < p10) {
+                val o = o10 / 10.0
+                var s = 0L; var m = 0L; var k = 0
+                while (true) {
+                    val i = Math.round(o + k * p).toInt()
+                    if (i >= n) break
+                    s += h[i]
+                    val mi = Math.round(o + k * p + p / 2).toInt()
+                    if (mi < n) m += h[mi]
+                    k++
+                }
+                if (k >= 3) {
+                    // On-grid minus half-way-between: rewards the true spacing, not its multiples.
+                    val sc = (s - m).toDouble() / k
+                    if (here == null || sc > here.score) here = Fit(sc, p, o)
+                }
+                o10 += 5
+            }
+            here?.let { perPeriod += it; if (best == null || it.score > best!!.score) best = it }
+            p10 += 2
+        }
+        val b = best ?: return null
+        if (b.score <= 0) return null
+        // Smallest spacing that scores nearly as well as the best (avoids picking 2× or 3× the spacing).
+        val coarse = perPeriod.first { it.score >= 0.6 * b.score }
+
+        var r = Fit(Double.NEGATIVE_INFINITY, coarse.p, coarse.o)
+        for (i in -50..50) {
+            val p = coarse.p + i * 0.02
+            if (p < 10) continue
+            for (j in -8..8) {
+                val o = coarse.o + j * 0.25
+                if (o < 0) continue
+                var s = 0L; var k = 0
+                while (true) {
+                    val idx = Math.round(o + k * p).toInt()
+                    if (idx >= n) break
+                    s += h[idx]; k++
+                }
+                if (k == 0) continue
+                val sc = s.toDouble() / k
+                if (sc > r.score) r = Fit(sc, p, o)
+            }
+        }
+        return r.p.toFloat() to r.o.toFloat()
+    }
+
+    /** Brightest channel of the most common colour (the board background). */
+    private fun backgroundMax(px: IntArray): Int {
         val counts = IntArray(4096)
-        for (p in px) counts[bin(p)]++
+        var i = 0
+        while (i < px.size) { counts[bin(px[i])]++; i += 3 }
         var best = 0
-        for (i in 1 until 4096) if (counts[i] > counts[best]) best = i
-        var r = 0L; var g = 0L; var b = 0L; var n = 0
-        for (p in px) if (bin(p) == best) {
-            r += (p shr 16) and 0xFF; g += (p shr 8) and 0xFF; b += p and 0xFF; n++
-        }
-        return ((r / n).toInt() shl 16) or ((g / n).toInt() shl 8) or (b / n).toInt()
+        for (k in 1 until 4096) if (counts[k] > counts[best]) best = k
+        val r = (best shr 8) and 0xF
+        val g = (best shr 4) and 0xF
+        val b = best and 0xF
+        return maxOf(r, g, b) * 16 + 8
     }
 
     private fun bin(p: Int) = ((p shr 12) and 0xF00) or ((p shr 8) and 0xF0) or ((p shr 4) and 0xF)
 
-    private fun colorDistance(a: Int, b: Int): Int =
-        abs(((a shr 16) and 0xFF) - ((b shr 16) and 0xFF)) +
-            abs(((a shr 8) and 0xFF) - ((b shr 8) and 0xFF)) +
-            abs((a and 0xFF) - (b and 0xFF))
+    private fun maxChannel(p: Int) = maxOf((p shr 16) and 0xFF, (p shr 8) and 0xFF, p and 0xFF)
 }

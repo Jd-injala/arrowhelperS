@@ -15,8 +15,6 @@ import kotlin.math.min
 @SuppressLint("ViewConstructor")
 class GridEditorView(
     ctx: Context,
-    private val rows: Int,
-    private val cols: Int,
     private val initialScreenRect: RectF?,
 ) : View(ctx) {
 
@@ -31,9 +29,6 @@ class GridEditorView(
     private val dim = Paint().apply { color = 0x33000000 }
     private val frame = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.CYAN; style = Paint.Style.STROKE; strokeWidth = 3 * d
-    }
-    private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xAA00FFFF.toInt(); style = Paint.Style.STROKE; strokeWidth = 1 * d
     }
     private val handle = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.CYAN }
     private val label = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -59,17 +54,9 @@ class GridEditorView(
     override fun onDraw(canvas: Canvas) {
         val r = ensureRect()
         canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), dim)
-        for (i in 1 until cols) {
-            val x = r.left + r.width() * i / cols
-            canvas.drawLine(x, r.top, x, r.bottom, line)
-        }
-        for (i in 1 until rows) {
-            val y = r.top + r.height() * i / rows
-            canvas.drawLine(r.left, y, r.right, y, line)
-        }
         canvas.drawRect(r, frame)
         for ((x, y) in corners(r)) canvas.drawCircle(x, y, 12 * d, handle)
-        canvas.drawText("$rows × $cols — drag corners to fit the grid", r.left, r.top - 14 * d, label)
+        canvas.drawText("Cover the whole puzzle, with a little margin", r.left, r.top - 14 * d, label)
     }
 
     private fun corners(r: RectF) = listOf(r.left to r.top, r.right to r.top, r.right to r.bottom, r.left to r.bottom)
@@ -105,35 +92,25 @@ class GridEditorView(
     }
 }
 
-/** Draws the tap order over the puzzle. Touches pass straight through it. */
+/** Draws the tap order at each arrow's head. Touches pass straight through it. */
 @SuppressLint("ViewConstructor")
 class HintView(
     ctx: Context,
-    private val grid: RectF,
     private val board: Board,
     result: SolveResult,
 ) : View(ctx) {
 
     private val d = ctx.resources.displayMetrics.density
     private val loc = IntArray(2)
-    private val order = HashMap<Int, Int>()
+    private val order = result.order
+    private val stuck = result.stuck
     private var done = 0
 
     private val next = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFC107.toInt() }
     private val later = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xDD2E7D32.toInt() }
-    private val stuck = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xDDD32F2F.toInt() }
+    private val stuckPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xDDD32F2F.toInt() }
     private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE; textAlign = Paint.Align.CENTER; isFakeBoldText = true
-    }
-    private val dirText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.CYAN; textAlign = Paint.Align.CENTER; setShadowLayer(3f, 0f, 0f, Color.BLACK)
-    }
-    private val outline = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0x8800FFFF.toInt(); style = Paint.Style.STROKE; strokeWidth = 2 * d
-    }
-
-    init {
-        result.moves.forEachIndexed { i, m -> order[m.row * board.cols + m.col] = i }
     }
 
     /** Steps before [n] are finished and no longer drawn. */
@@ -141,31 +118,22 @@ class HintView(
 
     override fun onDraw(canvas: Canvas) {
         getLocationOnScreen(loc)
-        val ox = grid.left - loc[0]
-        val oy = grid.top - loc[1]
-        val cw = grid.width() / board.cols
-        val ch = grid.height() / board.rows
-        val radius = min(cw, ch) * 0.26f
-        text.textSize = radius * 1.1f
-        dirText.textSize = radius * 0.9f
-        canvas.drawRect(ox, oy, ox + grid.width(), oy + grid.height(), outline)
+        val spacing = if (board.cols > 1) board.xs[1] - board.xs[0] else 40f
+        val radius = min(spacing * 0.42f, 16 * d)
+        text.textSize = radius * 1.05f
 
-        for (r in 0 until board.rows) for (c in 0 until board.cols) {
-            val dir = board[r, c] ?: continue
-            val cx = ox + (c + 0.5f) * cw
-            val cy = oy + (r + 0.5f) * ch
-            val step = order[r * board.cols + c]
-            if (step != null && step < done) continue
-            val paint = when {
-                step == null -> stuck
-                step == done -> next
-                else -> later
-            }
+        fun mark(arrowIndex: Int, paint: Paint, label: String) {
+            val h = board.arrows[arrowIndex].head
+            val cx = board.xs[h.c] - loc[0]
+            val cy = board.ys[h.r] - loc[1]
             canvas.drawCircle(cx, cy, radius, paint)
-            val label = if (step == null) "!" else "${step + 1}"
             canvas.drawText(label, cx, cy - (text.descent() + text.ascent()) / 2, text)
-            // What the detector thinks this arrow is — handy for spotting mistakes.
-            canvas.drawText(dir.glyph, cx, oy + r * ch + ch * 0.18f, dirText)
+        }
+        for (i in stuck) mark(i, stuckPaint, "!")
+        // Draw later steps first so the next one ends up on top.
+        for (step in order.indices.reversed()) {
+            if (step < done) continue
+            mark(order[step], if (step == done) next else later, "${step + 1}")
         }
     }
 }

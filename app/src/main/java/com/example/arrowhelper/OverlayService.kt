@@ -10,7 +10,6 @@ import android.content.pm.ServiceInfo
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.PointF
-import android.graphics.RectF
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -167,12 +166,12 @@ class OverlayService : Service() {
         val ed = editor
         if (ed == null) {
             clearHints()
-            val v = GridEditorView(this, Prefs.rows(this), Prefs.cols(this), Prefs.gridRect(this))
+            val v = GridEditorView(this, Prefs.gridRect(this))
             wm.addView(v, overlayParams(WindowManager.LayoutParams.MATCH_PARENT, touchable = true))
             editor = v
             raiseBar()
             gridBtn?.text = "Save"
-            toast("Drag the corners so the box covers the puzzle grid, then tap Save")
+            toast("Drag the corners so the box covers the whole puzzle (all the dots), then tap Save")
         } else {
             ed.screenRect()?.let { Prefs.setGridRect(this, it) }
             wm.removeView(ed)
@@ -207,10 +206,12 @@ class OverlayService : Service() {
         }
         analyze { board, result ->
             showHints(board, result)
-            if (result.moves.isEmpty()) { report(board, result); return@analyze }
+            if (result.order.isEmpty()) { report(board, result); return@analyze }
             if (result.stuck.isNotEmpty()) toast("Some arrows look stuck (red) — tapping the ones that can move")
-            val grid = Prefs.gridRect(this) ?: return@analyze
-            val points = result.moves.map { cellCenter(grid, board, it.row, it.col) }
+            val points = result.order.map { i ->
+                val n = board.arrows[i].tapNode
+                PointF(board.xs[n.c], board.ys[n.r])
+            }
             autoBtn?.text = "Stop"
             tapper.tapSequence(
                 points, Prefs.tapDelay(this),
@@ -224,14 +225,12 @@ class OverlayService : Service() {
         }
     }
 
-    /** Hide our UI, grab a screenshot, detect the arrows and solve. */
+    /** Hide our UI, grab a screenshot, read the board and solve. */
     private fun analyze(onResult: (Board, SolveResult) -> Unit) {
         if (busy) return
-        if (editor != null) toggleEditor() // save the grid if it's still being edited
-        val grid = Prefs.gridRect(this) ?: run { toast("Set the grid first: tap Grid"); return }
+        if (editor != null) toggleEditor() // save the box if it's still being edited
+        val grid = Prefs.gridRect(this) ?: run { toast("Set the puzzle area first: tap Grid"); return }
         val cap = capturer ?: return
-        val rows = Prefs.rows(this)
-        val cols = Prefs.cols(this)
         val threshold = Prefs.threshold(this)
 
         busy = true
@@ -242,15 +241,26 @@ class OverlayService : Service() {
             worker.execute {
                 val out = runCatching {
                     val shot = cap.capture(hiddenAt) ?: return@runCatching null
-                    val board = ArrowDetector.detect(shot, grid, rows, cols, threshold)
+                    val l = grid.left.toInt().coerceIn(0, shot.width - 1)
+                    val t = grid.top.toInt().coerceIn(0, shot.height - 1)
+                    val w = (grid.right.toInt().coerceIn(l + 1, shot.width)) - l
+                    val h = (grid.bottom.toInt().coerceIn(t + 1, shot.height)) - t
+                    val px = IntArray(w * h)
+                    shot.getPixels(px, 0, w, l, t, w, h)
                     shot.recycle()
+                    val board = ArrowDetector.detect(px, w, h, l.toFloat(), t.toFloat(), threshold)
+                        ?: return@runCatching Unit
                     board to Solver.solve(board)
                 }.getOrNull()
                 main.post {
                     bar?.visibility = View.VISIBLE
                     busy = false
-                    if (out == null) toast("Couldn't read the screen — try again")
-                    else onResult(out.first, out.second)
+                    @Suppress("UNCHECKED_CAST")
+                    when (out) {
+                        null -> toast("Couldn't read the screen — try again")
+                        Unit -> toast("Couldn't find the dot grid. Make the box cover the whole puzzle, then try again.")
+                        else -> (out as Pair<Board, SolveResult>).let { onResult(it.first, it.second) }
+                    }
                 }
             }
         }, 150)
@@ -258,8 +268,7 @@ class OverlayService : Service() {
 
     private fun showHints(board: Board, result: SolveResult) {
         clearHints()
-        val grid = Prefs.gridRect(this) ?: return
-        val v = HintView(this, grid, board, result)
+        val v = HintView(this, board, result)
         wm.addView(v, overlayParams(WindowManager.LayoutParams.MATCH_PARENT, touchable = false))
         hintView = v
         raiseBar()
@@ -271,19 +280,15 @@ class OverlayService : Service() {
     }
 
     private fun report(board: Board, result: SolveResult) {
+        val extra = if (board.unreadable > 0) " (${board.unreadable} couldn't be read)" else ""
         val msg = when {
-            board.arrowCount == 0 -> "No arrows found. Check the grid box and rows/columns, or lower the sensitivity number."
-            result.stuck.isEmpty() -> "${result.moves.size} moves — tap them in number order"
-            else -> "${result.moves.size} moves found, ${result.stuck.size} arrows stuck (red !). " +
-                "Check the small blue arrows: if one is wrong, adjust the grid or sensitivity."
+            board.arrows.isEmpty() -> "No arrows found. Make the box cover the puzzle, or lower the sensitivity number."
+            result.stuck.isEmpty() -> "${board.arrows.size} arrows — tap them in number order$extra"
+            else -> "${result.order.size} moves found, ${result.stuck.size} arrows stuck (red !)$extra. " +
+                "Check that the box covers the whole puzzle."
         }
         toast(msg)
     }
-
-    private fun cellCenter(grid: RectF, board: Board, r: Int, c: Int) = PointF(
-        grid.left + (c + 0.5f) * grid.width() / board.cols,
-        grid.top + (r + 0.5f) * grid.height() / board.rows,
-    )
 
     // ---------- misc ----------
 
