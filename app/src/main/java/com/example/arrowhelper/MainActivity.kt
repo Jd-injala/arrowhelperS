@@ -53,7 +53,7 @@ class MainActivity : ComponentActivity() {
         root.addView(status)
 
         thresholdInput = numberField(root, "Detection sensitivity (lower = picks up fainter arrows, default 90)", Prefs.threshold(this))
-        delayInput = numberField(root, "Pause between auto-taps in ms (default 450)", Prefs.tapDelay(this).toInt())
+        delayInput = numberField(root, "Pause after each auto-tap in ms (default 700)", Prefs.tapDelay(this).toInt())
 
         button(root, "Save settings") { saveSettings(); toast("Saved") }
         button(root, "1. Allow drawing over other apps") {
@@ -75,7 +75,7 @@ class MainActivity : ComponentActivity() {
             text = "How to use:\n" +
                 "• Open the game, tap Grid on the floating bar and drag the box so it covers the whole puzzle (all the dots, with a little margin). Tap Save.\n" +
                 "• Hint: a number on each arrowhead shows the order to tap. Red ! = an arrow that can't leave (usually the box doesn't cover the whole puzzle).\n" +
-                "• Auto: taps the arrows for you in that order. Tap Stop to cancel.\n" +
+                "• Auto: taps one free arrow, looks at the board again, and repeats until it is clear. Tap Stop to cancel.\n" +
                 "• Drag the bar by its ⠿ handle so it isn't covering the puzzle."
         })
         setContentView(ScrollView(this).apply { addView(root) })
@@ -110,7 +110,7 @@ class MainActivity : ComponentActivity() {
             6,
             6,
             thresholdInput.int(90, 10, 400),
-            delayInput.int(450, 100, 5000),
+            delayInput.int(700, 100, 5000),
         )
     }
 

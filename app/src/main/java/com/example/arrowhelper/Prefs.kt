@@ -11,7 +11,7 @@ object Prefs {
     /** How different (0–765) a pixel must be from the cell background to count as arrow. */
     fun threshold(c: Context) = sp(c).getInt("threshold", 90)
     /** Pause between taps in Auto mode, so the game's animation can finish. */
-    fun tapDelay(c: Context) = sp(c).getInt("tapDelay", 450).toLong()
+    fun tapDelay(c: Context) = sp(c).getInt("tapDelay", 700).toLong()
 
     fun save(c: Context, rows: Int, cols: Int, threshold: Int, tapDelay: Int) {
         sp(c).edit().putInt("rows", rows).putInt("cols", cols)

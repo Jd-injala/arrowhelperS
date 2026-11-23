@@ -35,6 +35,7 @@ class OverlayService : Service() {
         const val EXTRA_DATA = "data"
         private const val CHANNEL_ID = "overlay"
         private const val NOTIF_ID = 1
+        private val AUTO_TOKEN = Any()
     }
 
     private lateinit var wm: WindowManager
@@ -76,6 +77,7 @@ class OverlayService : Service() {
     }
 
     override fun onDestroy() {
+        autoRunning = false
         TapService.instance?.cancel()
         listOf(hintView, editor, bar).forEach { v -> v?.let { runCatching { wm.removeView(it) } } }
         hintView = null; editor = null; bar = null
@@ -191,35 +193,65 @@ class OverlayService : Service() {
         }
     }
 
+    private var autoRunning = false
+    private var lastCount = -1
+    private var noProgress = 0
+    private var autoTaps = 0
+
     private fun onAuto() {
         val tapper = TapService.instance
         if (tapper == null) {
             toast("Turn on Arrow Helper in Accessibility settings to use Auto")
             return
         }
-        if (tapper.isRunning) {
-            tapper.cancel()
-            autoBtn?.text = "Auto"
-            clearHints()
-            toast("Stopped")
-            return
-        }
+        if (autoRunning) { stopAuto("Stopped"); return }
+        autoRunning = true
+        lastCount = -1; noProgress = 0; autoTaps = 0
+        autoBtn?.text = "Stop"
+        autoStep()
+    }
+
+    private fun stopAuto(msg: String) {
+        autoRunning = false
+        TapService.instance?.cancel()
+        main.removeCallbacksAndMessages(AUTO_TOKEN)
+        autoBtn?.text = "Auto"
+        clearHints()
+        toast(msg)
+    }
+
+    /**
+     * One round: fresh screenshot → read board → tap ONE free arrow → wait → repeat.
+     * Re-reading every time copes with the board moving/zooming and with one-off misreads.
+     */
+    private fun autoStep() {
+        if (!autoRunning) return
+        val tapper = TapService.instance ?: return stopAuto("Auto-tap was turned off")
         analyze { board, result ->
-            showHints(board, result)
-            if (result.order.isEmpty()) { report(board, result); return@analyze }
-            if (result.stuck.isNotEmpty()) toast("Some arrows look stuck (red) — tapping the ones that can move")
-            val points = result.order.map { i ->
-                val n = board.arrows[i].tapNode
-                PointF(board.xs[n.c], board.ys[n.r])
+            if (!autoRunning) return@analyze
+            val count = board.arrows.size
+            if (count == 0) return@analyze stopAuto(if (autoTaps > 0) "Done — $autoTaps taps" else "No arrows found")
+            if (result.order.isEmpty()) {
+                showHints(board, result)
+                return@analyze stopAuto("Every arrow left looks blocked (red). Send a screenshot of this.")
             }
-            autoBtn?.text = "Stop"
+            // Safety: if taps aren't removing arrows, stop instead of losing lives.
+            if (lastCount != -1 && count >= lastCount) noProgress++ else noProgress = 0
+            lastCount = count
+            if (noProgress >= 2) {
+                showHints(board, result)
+                return@analyze stopAuto("Taps aren't removing arrows — stopped. Send a screenshot of this.")
+            }
+            val n = board.arrows[result.order.first()].tapNode
             tapper.tapSequence(
-                points, Prefs.tapDelay(this),
-                onProgress = { i -> hintView?.setDone(i) },
-                onFinished = { completed ->
-                    autoBtn?.text = "Auto"
-                    clearHints()
-                    toast(if (completed) "Done — ${points.size} taps" else "Stopped (screen was touched)")
+                listOf(PointF(board.xs[n.c], board.ys[n.r])), 0,
+                onProgress = {},
+                onFinished = { ok ->
+                    if (!autoRunning) return@tapSequence
+                    if (!ok) return@tapSequence stopAuto("Stopped (screen was touched)")
+                    autoTaps++
+                    // Let the arrow fly away before looking again.
+                    main.postAtTime({ autoStep() }, AUTO_TOKEN, SystemClock.uptimeMillis() + Prefs.tapDelay(this))
                 },
             )
         }
