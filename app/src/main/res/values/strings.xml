@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Arrow Helper</string>
+    <string name="tap_service_description">Lets Arrow Helper tap the arrows for you when you press Auto. It does not read other apps\' content.</string>
+</resources>
