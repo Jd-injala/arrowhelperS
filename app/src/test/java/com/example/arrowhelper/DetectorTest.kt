@@ -1,6 +1,6 @@
 package com.example.arrowhelper
 
-import javax.imageio.ImageIO
+import java.util.zip.GZIPInputStream
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -10,10 +10,15 @@ class DetectorTest {
 
     @Test
     fun readsAndSolvesRealBoard() {
-        val img = ImageIO.read(javaClass.getResourceAsStream("/board1.png"))
-        // Same box a user would draw: around the puzzle with some margin.
+        // Crop of a real screenshot (raw RGB), the same box a user would draw around the puzzle.
         val l = 140; val t = 870; val w = 800; val h = 1080
-        val px = img.getRGB(l, t, w, h, null, 0, w)
+        val raw = GZIPInputStream(javaClass.getResourceAsStream("/board1.rgb.gz")!!).readBytes()
+        val px = IntArray(w * h) { i ->
+            val r = raw[i * 3].toInt() and 0xFF
+            val g = raw[i * 3 + 1].toInt() and 0xFF
+            val b = raw[i * 3 + 2].toInt() and 0xFF
+            (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+        }
         val board = ArrowDetector.detect(px, w, h, l.toFloat(), t.toFloat(), 90)!!
 
         assertEquals("dot columns", 19, board.cols)
