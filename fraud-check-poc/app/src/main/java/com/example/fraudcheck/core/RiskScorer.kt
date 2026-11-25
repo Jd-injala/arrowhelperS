@@ -35,7 +35,7 @@ object RiskScorer {
     }
 
     /** Minimal JSON without Android deps so the report can be unit-tested and sent to a backend. */
-    fun toJson(report: RiskReport, sessionId: String): String {
+    fun toJson(report: RiskReport, sessionId: String, deviceInfo: List<Pair<String, String>> = emptyList()): String {
         fun esc(s: String) = buildString {
             for (c in s) when (c) {
                 '"' -> append("\\\""); '\\' -> append("\\\\"); '\n' -> append("\\n")
@@ -46,6 +46,7 @@ object RiskScorer {
         val items = report.signals.joinToString(",") { s ->
             """{"id":"${esc(s.id)}","flagged":${s.flagged},"weight":${s.weight},"trust":"${s.trust}","hardStop":${s.hardStop},"evidence":"${esc(s.evidence)}"}"""
         }
-        return """{"sessionId":"${esc(sessionId)}","score":${report.score},"band":"${report.band}","signals":[$items]}"""
+        val device = deviceInfo.joinToString(",") { (k, v) -> "\"${esc(k)}\":\"${esc(v)}\"" }
+        return """{"sessionId":"${esc(sessionId)}","score":${report.score},"band":"${report.band}","device":{$device},"signals":[$items]}"""
     }
 }
