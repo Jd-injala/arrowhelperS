@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/disclosure"
+            android:textSize="13sp"
+            android:paddingBottom="12dp" />
+
+        <EditText android:id="@+id/fieldName"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:hint="Full name (as on PAN)" android:inputType="textPersonName" android:autofillHints="name" />
+
+        <EditText android:id="@+id/fieldPan"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:hint="PAN" android:inputType="textCapCharacters" android:maxLength="10" />
+
+        <EditText android:id="@+id/fieldPhone"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:hint="Mobile number" android:inputType="phone" android:autofillHints="phone" />
+
+        <Button android:id="@+id/btnRun"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="12dp" android:text="Run safety checks" />
+
+        <Button android:id="@+id/btnShare"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:enabled="false" android:text="Share report (JSON)" />
+
+        <TextView android:id="@+id/txtReport"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="12dp" android:fontFamily="monospace"
+            android:textIsSelectable="true" android:textSize="12sp"
+            android:text="Fill the form normally (hold the phone), then tap Run." />
+    </LinearLayout>
+</ScrollView>

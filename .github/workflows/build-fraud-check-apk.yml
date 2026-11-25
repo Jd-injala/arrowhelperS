@@ -1,0 +1,41 @@
+name: Build Fraud Check PoC APK
+on:
+  push:
+    branches: [fraud-check-poc]
+    paths: ['fraud-check-poc/**', '.github/workflows/build-fraud-check-apk.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: fraud-check-poc
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Gradle 8.9
+        run: |
+          curl -sSL -o gradle.zip https://services.gradle.org/distributions/gradle-8.9-bin.zip
+          unzip -q gradle.zip -d "$HOME/gradle"
+          echo "$HOME/gradle/gradle-8.9/bin" >> "$GITHUB_PATH"
+      - name: Build debug APK
+        run: |
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0" > /dev/null || true
+          gradle :app:testDebugUnitTest :app:assembleDebug --no-daemon
+          cp app/build/outputs/apk/debug/app-debug.apk FraudCheckPoc.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FraudCheckPoc-apk
+          path: fraud-check-poc/FraudCheckPoc.apk
+      - name: Publish to the "fraud-check-poc-latest" release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete fraud-check-poc-latest --yes --cleanup-tag || true
+          gh release create fraud-check-poc-latest FraudCheckPoc.apk --target "$GITHUB_SHA" --prerelease --title "Fraud Check PoC (latest build)" --notes "Built from ${GITHUB_SHA::7} on the fraud-check-poc branch"

@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Only permissions allowed for personal loan apps on Google Play.
+         NOT used on purpose: READ_SMS, READ_CALL_LOG, READ_CONTACTS, ACCESS_FINE_LOCATION,
+         READ_PHONE_NUMBERS, QUERY_ALL_PACKAGES, READ/WRITE_EXTERNAL_STORAGE, READ_MEDIA_*. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <!-- Narrow package visibility instead of QUERY_ALL_PACKAGES (banned for loan apps). -->
+    <queries>
+        <!-- root managers -->
+        <package android:name="com.topjohnwu.magisk" />
+        <package android:name="eu.chainfire.supersu" />
+        <package android:name="me.weishu.kernelsu" />
+        <!-- app cloners / virtual spaces -->
+        <package android:name="com.lbe.parallel.intl" />
+        <package android:name="com.parallel.space.lite" />
+        <package android:name="com.ludashi.dualspace" />
+        <package android:name="com.applisto.appcloner" />
+        <package android:name="io.va.exposed" />
+        <!-- hooking frameworks -->
+        <package android:name="org.lsposed.manager" />
+        <package android:name="de.robv.android.xposed.installer" />
+        <!-- fake GPS -->
+        <package android:name="com.lexa.fakegps" />
+        <package android:name="com.incorporateapps.fakegps.fre" />
+    </queries>
+
+    <application
+        android:allowBackup="false"
+        android:label="Fraud Check PoC"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.AppCompat.DayNight.DarkActionBar">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
